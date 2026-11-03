@@ -18,15 +18,16 @@ async def healthz():
 
 @router.get("/readyz")
 async def readyz(response: Response):
-    """Readiness probe checking dependencies."""
+    """Readiness probe checking dependencies and active LLM configuration."""
     dependencies = {
         "llm_provider": settings.LLM_PROVIDER,
+        "llm_model": settings.LLM_MODEL,
+        "llm_configured": bool(settings.LLM_API_KEY) if settings.LLM_PROVIDER == "openai_compatible" else True,
         "database": "ok",
         "redis": "ok",
         "normalizer": "ok"
     }
 
-    # All components ready
     return {
         "status": "ok",
         "dependencies": dependencies

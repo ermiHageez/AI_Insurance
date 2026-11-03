@@ -1,0 +1,174 @@
+version: '3.8'
+
+# ==============================================================================
+# InsurTech AI Microservice - Production VPS Orchestration
+# Port: 5000 (FastAPI Core) | 5432 (PgVector) | 6379 (Redis) | 11434 (Ollama)
+# ==============================================================================
+
+networks:
+  insurtech_network:
+    name: insurtech_ai_network
+    driver: bridge
+
+volumes:
+  pgvector_data:
+    name: insurtech_ai_pgvector_data
+  redis_data:
+    name: insurtech_ai_redis_data
+  ollama_data:
+    name: insurtech_ai_ollama_data
+
+services:
+  # ----------------------------------------------------------------------------
+  # 1. AI Core FastAPI Microservice (Port 5000)
+  # ----------------------------------------------------------------------------
+  ai-assistant:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: insurtech-ai-core
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      - PORT=5000
+      - HOST=0.0.0.0
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - DATABASE_URL=postgresql://insurtech_admin:insurtech_ai_secret@pgvector:5432/insurtech_ai
+      - REDIS_URL=redis://redis:6379/0
+      # LLM Provider Configuration: supports "mock", "ollama", "gemini", "openai", "groq"
+      - LLM_PROVIDER=${LLM_PROVIDER:-mock}
+      - LLM_API_KEY=${LLM_API_KEY:-}
+      - LLM_BASE_URL=${LLM_BASE_URL:-}
+      - LLM_MODEL=${LLM_MODEL:-}
+      - OLLAMA_HOST=http://ollama:11434
+      # JWT & Internal Gateway Secret
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY:-insurtech-ai-jwt-super-secret-key-change-in-production}
+      - JWT_ALGORITHM=HS256
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost,http://localhost:4200,http://localhost:8081}
+    depends_on:
+      redis:
+        condition: service_healthy
+      pgvector:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          cpus: '2.5'
+          memory: 3072M
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    networks:
+      - insurtech_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+  # ----------------------------------------------------------------------------
+  # 2. Vector Database: PostgreSQL 16 with pgvector extension
+  # ----------------------------------------------------------------------------
+  pgvector:
+    image: pgvector/pgvector:pg16
+    container_name: insurtech-ai-pgvector
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=insurtech_ai
+      - POSTGRES_USER=insurtech_admin
+      - POSTGRES_PASSWORD=insurtech_ai_secret
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '1.5'
+          memory: 1536M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    networks:
+      - insurtech_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U insurtech_admin -d insurtech_ai"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 3. Redis Cache: Rolling Session Memory & Voice Audio Cache
+  # ----------------------------------------------------------------------------
+  redis:
+    image: redis:7-alpine
+    container_name: insurtech-ai-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "384mb", "--maxmemory-policy", "volatile-lru"]
+    volumes:
+      - redis_data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: '0.75'
+          memory: 512M
+        reservations:
+          cpus: '0.1'
+          memory: 64M
+    networks:
+      - insurtech_network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # ----------------------------------------------------------------------------
+  # 4. Ollama Server (Local LLM profile for offline VPS deployment)
+  # ----------------------------------------------------------------------------
+  ollama:
+    image: ollama/ollama:latest
+    container_name: insurtech-ai-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 6144M
+        reservations:
+          cpus: '1.0'
+          memory: 2048M
+    networks:
+      - insurtech_network
+
+  # ----------------------------------------------------------------------------
+  # 5. Reverse Proxy: Nginx TLS 1.3 & WebSocket Gateway
+  # ----------------------------------------------------------------------------
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: insurtech-ai-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - ai-assistant
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+    networks:
+      - insurtech_network

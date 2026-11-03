@@ -1,9 +1,10 @@
 """Unified LLM Provider Router.
 
 Supports local Ollama, cloud LLM providers via API Key (Gemini, OpenAI, Groq),
-and a deterministic Mock Provider for fully offline local testing.
+and a deterministic Mock Provider for fully offline local testing and reliable fallback.
 """
 import httpx
+import logging
 from typing import AsyncGenerator, List, Dict, Any, Optional
 from app.core.config import settings
 from app.core.guardrails import (
@@ -15,6 +16,8 @@ from app.core.guardrails import (
     INJECTION_REFUSAL_ENGLISH,
     is_amharic_query,
 )
+
+logger = logging.getLogger("llm.router")
 
 
 class MockLLMProvider:
@@ -90,7 +93,8 @@ class OllamaProvider:
             return INJECTION_REFUSAL_AMHARIC if language == "am" else INJECTION_REFUSAL_ENGLISH
 
         if not context_chunks:
-            return REFUSAL_AMHARIC if language == "am" else REFUSAL_ENGLISH
+            refusal = REFUSAL_AMHARIC if language == "am" else REFUSAL_ENGLISH
+            return append_mandatory_disclaimer(refusal, language=language)
 
         # Grounding context block
         context_text = "\n\n".join([
@@ -110,12 +114,33 @@ class OllamaProvider:
             "options": {"temperature": settings.LLM_TEMPERATURE}
         }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(f"{self.base_url}/api/chat", json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            raw_answer = data.get("message", {}).get("content", "")
-            return append_mandatory_disclaimer(raw_answer, language=language)
+        try:
+            # Check if base_url is full Ollama API (native /api/chat) or OpenAI-compatible (/v1)
+            target_endpoint = (
+                f"{self.base_url}/chat/completions"
+                if "/v1" in self.base_url else
+                f"{self.base_url}/api/chat"
+            )
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(target_endpoint, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                
+                # Check format (Ollama native vs OpenAI-compatible)
+                if "message" in data:
+                    raw_answer = data["message"].get("content", "")
+                elif "choices" in data and len(data["choices"]) > 0:
+                    raw_answer = data["choices"][0]["message"].get("content", "")
+                else:
+                    raw_answer = str(data)
+
+                return append_mandatory_disclaimer(raw_answer, language=language)
+
+        except Exception as e:
+            logger.warning(f"Ollama inference error: {e}. Falling back to grounded mock.")
+            fallback = MockLLMProvider()
+            return await fallback.generate(prompt, context_chunks, system_prompt, history, language)
 
 
 class OpenAICompatibleProvider:
@@ -125,6 +150,12 @@ class OpenAICompatibleProvider:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.model = model
+
+    def _resolve_endpoint(self) -> str:
+        """Resolve full chat completions URL."""
+        if self.base_url.endswith("/chat/completions"):
+            return self.base_url
+        return f"{self.base_url}/chat/completions"
 
     async def generate(
         self,
@@ -138,7 +169,8 @@ class OpenAICompatibleProvider:
             return INJECTION_REFUSAL_AMHARIC if language == "am" else INJECTION_REFUSAL_ENGLISH
 
         if not context_chunks:
-            return REFUSAL_AMHARIC if language == "am" else REFUSAL_ENGLISH
+            refusal = REFUSAL_AMHARIC if language == "am" else REFUSAL_ENGLISH
+            return append_mandatory_disclaimer(refusal, language=language)
 
         context_text = "\n\n".join([
             f"[Source: {c.get('document_id', 'doc')} | Section: {c.get('section', '')}]\n{c.get('content_text', '')}"
@@ -160,12 +192,19 @@ class OpenAICompatibleProvider:
             "temperature": settings.LLM_TEMPERATURE
         }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(f"{self.base_url}/chat/completions", headers=headers, json=payload)
-            resp.raise_for_status()
-            data = resp.json()
-            content = data["choices"][0]["message"]["content"]
-            return append_mandatory_disclaimer(content, language=language)
+        endpoint = self._resolve_endpoint()
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(endpoint, headers=headers, json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                content = data["choices"][0]["message"]["content"]
+                return append_mandatory_disclaimer(content, language=language)
+        except Exception as e:
+            logger.warning(f"OpenAI-compatible LLM error: {e}. Falling back to grounded mock.")
+            fallback = MockLLMProvider()
+            return await fallback.generate(prompt, context_chunks, system_prompt, history, language)
 
 
 class LLMRouter:
