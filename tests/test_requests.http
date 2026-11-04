@@ -1,0 +1,70 @@
+###
+# InsurTech AI Assistant: HTTP Request Collection (VS Code / Bruno)
+# Target: http://127.0.0.1:5000
+###
+
+@baseUrl = http://127.0.0.1:5000
+@tokenCustomerA = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJjdXN0LXVzZXItMTIzIiwibmFtZSI6IkFiZWJlIEJpa2lsYSIsInJvbGVzIjpbIlBPTElDWUhPTERFUiJdfQ.sig
+@tokenAdmin = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbi0wMDEiLCJyb2xlcyI6WyJBRE1JTiJdfQ.sig
+
+### 1. Health Liveness Probe
+GET {{baseUrl}}/healthz
+Accept: application/json
+
+### 2. Health Readiness Probe
+GET {{baseUrl}}/readyz
+Accept: application/json
+
+### 3. Prometheus Metrics
+GET {{baseUrl}}/metrics
+
+### 4. Grounded Chat Query - Policy Deductible (Amharic)
+POST {{baseUrl}}/api/v1/chat/messages
+Content-Type: application/json
+Authorization: Bearer {{tokenCustomerA}}
+
+{
+  "message": "የግል አውቶሞቢል የመጀመሪያ አደጋ ተቀናሽ ስንት ነው?",
+  "session_id": "session-cust-1"
+}
+
+### 5. Grounded Chat Query - Claim Status Lookup (Authorized Owner)
+POST {{baseUrl}}/api/v1/chat/messages
+Content-Type: application/json
+Authorization: Bearer {{tokenCustomerA}}
+
+{
+  "message": "የይገባኛል ጥያቄ CLM-1001 ያለበት ሁኔታ ምንድን ነው?",
+  "session_id": "session-cust-1"
+}
+
+### 6. Semantic Search
+POST {{baseUrl}}/api/v1/kb/search
+Content-Type: application/json
+
+{
+  "query": "የሦስተኛ ወገን የካሳ ክፍያ ገደብ",
+  "top_k": 3
+}
+
+### 7. List Regulatory Sources (Admin)
+GET {{baseUrl}}/api/v1/admin/sources
+Authorization: Bearer {{tokenAdmin}}
+
+### 8. Register Regulatory Source (Admin)
+POST {{baseUrl}}/api/v1/admin/sources
+Content-Type: application/json
+Authorization: Bearer {{tokenAdmin}}
+
+{
+  "url": "https://nbe.gov.et/directives/motor-tariff-2026",
+  "name": "NBE Motor Tariff 2026 Directive"
+}
+
+### 9. List Interactions for Review (Admin)
+GET {{baseUrl}}/api/v1/admin/review/interactions
+Authorization: Bearer {{tokenAdmin}}
+
+### 10. Export PII-Safe Training Data (Admin)
+GET {{baseUrl}}/api/v1/admin/export/training-data
+Authorization: Bearer {{tokenAdmin}}

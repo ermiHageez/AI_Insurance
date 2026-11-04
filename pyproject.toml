@@ -26,3 +26,9 @@ test = [
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["."]
+markers = [
+    "unit: isolated unit tests",
+    "integration: multi-component integration tests",
+    "security: authentication, authorization, IDOR, and injection tests",
+    "live: tests calling external cloud APIs (skipped by default in CI)"
+]

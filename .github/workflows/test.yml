@@ -1,0 +1,36 @@
+name: InsurTech AI Test Suite
+
+on:
+  push:
+    branches: [ main, "phase-*" ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Run Unit, Integration & Security Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-asyncio
+
+      - name: Run Unit & Integration Tests
+        run: |
+          APP_ENV=test pytest -m "not security and not live" -v
+
+      - name: Run Security Tests (xfail noted)
+        run: |
+          APP_ENV=test pytest -m "security" -v
