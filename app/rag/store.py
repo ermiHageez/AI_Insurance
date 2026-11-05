@@ -131,10 +131,10 @@ class KnowledgeStore:
                     "category": record["category"],
                     "section": record["section"],
                     "content_text": record["content_text"],
-                    "score": round(similarity, 4),
+                    "score": round(effective_score, 4),
                 })
 
-        # Sort descending by score
+        # Sort descending by effective score
         candidates.sort(key=lambda x: x["score"], reverse=True)
         return candidates[:top_k]
 

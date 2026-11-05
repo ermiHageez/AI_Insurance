@@ -87,9 +87,12 @@ async def main():
     except Exception as e:
         print(f"\n{FAIL} LLM Generation failed: {e}")
         print("\nTroubleshooting tips:")
-        if provider == "openai_compatible" and not has_api_key:
-            print("  -> LLM_PROVIDER is set to 'openai_compatible' but LLM_API_KEY is empty.")
-            print("  -> Please add your API key in insuretech-ai/.env")
+        if provider in ["gemini", "openai", "groq", "openai_compatible"] and not has_api_key:
+            print(f"  -> LLM_PROVIDER is set to '{provider}' but LLM_API_KEY is empty.")
+            print("  -> Please add your API key in insuretech-ai/.env (e.g. LLM_API_KEY=AIzaSy...)")
+        elif provider == "gemini":
+            print("  -> Ensure your Gemini API Key is valid from Google AI Studio (https://aistudio.google.com/app/apikey).")
+            print("  -> Ensure your network has outbound access to https://generativelanguage.googleapis.com")
         elif provider == "ollama":
             print(f"  -> Could not connect to Ollama at {base_url}.")
             print("  -> Ensure Ollama is running (`ollama serve`) or switch to `LLM_PROVIDER=mock`.")

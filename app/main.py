@@ -12,6 +12,7 @@ from app.api.v1.chat import router as chat_router
 from app.api.v1.admin_sources import router as admin_sources_router
 from app.api.v1.admin_review import router as admin_review_router
 from app.api.v1.voice_socket import router as voice_router
+from app.api.v1.admin_web import router as admin_web_router
 
 # Configure structlog
 structlog.configure(
@@ -31,6 +32,33 @@ async def lifespan(app: FastAPI):
         llm_provider=settings.LLM_PROVIDER,
         environment=settings.ENVIRONMENT
     )
+    # Auto-seed sample Amharic policy if available and store is empty
+    try:
+        from pathlib import Path
+        from app.rag.extractor import DocumentExtractor
+        from app.rag.chunker import chunk_document
+        from app.rag.store import knowledge_store
+
+        sample_pdf = Path(__file__).resolve().parent.parent / "sample_amharic_policy.pdf"
+        if sample_pdf.exists() and len(knowledge_store._chunks) == 0:
+            doc_info = DocumentExtractor.extract(sample_pdf.read_bytes(), sample_pdf.name)
+            chunks = chunk_document(
+                doc_info["full_text"],
+                metadata={
+                    "section": "Standard Coverage",
+                    "page_num": 1,
+                    "filename": sample_pdf.name
+                }
+            )
+            knowledge_store.upsert_chunks(
+                chunks=chunks,
+                document_id="sample_amharic_policy",
+                category="POLICY",
+                source_hash=doc_info["source_hash"]
+            )
+            logger.info("Auto-seeded sample Amharic policy into knowledge store", chunk_count=len(chunks))
+    except Exception as exc:
+        logger.warning("Failed to auto-seed sample policy", error=str(exc))
     yield
 
 
@@ -61,6 +89,7 @@ def create_application() -> FastAPI:
     app.include_router(admin_sources_router)
     app.include_router(admin_review_router)
     app.include_router(voice_router)
+    app.include_router(admin_web_router)
 
     # Mount Prometheus metrics endpoint
     metrics_app = make_asgi_app()

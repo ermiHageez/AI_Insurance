@@ -41,22 +41,41 @@ class DocumentExtractor:
             full_text_parts.append(text)
 
         elif ext == 'pdf':
-            # Attempt PyMuPDF extraction if installed, otherwise fallback to text parser
+            # Attempt pypdf or PyMuPDF extraction
+            extracted = False
             try:
-                import fitz  # PyMuPDF
-                doc = fitz.open(stream=file_bytes, filetype="pdf")
-                for page_idx in range(len(doc)):
-                    page = doc[page_idx]
-                    page_text = page.get_text("text")
+                import pypdf
+                import io
+                reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+                for page_idx, page in enumerate(reader.pages):
+                    page_text = page.extract_text() or ""
                     pages.append({
                         "page_num": page_idx + 1,
                         "text": page_text
                     })
                     full_text_parts.append(page_text)
-                doc.close()
-            except ImportError:
-                # Fallback for environments without compiled PyMuPDF
-                # Decode printable strings and structure
+                extracted = True
+            except Exception:
+                pass
+
+            if not extracted:
+                try:
+                    import fitz  # PyMuPDF
+                    doc = fitz.open(stream=file_bytes, filetype="pdf")
+                    for page_idx in range(len(doc)):
+                        page = doc[page_idx]
+                        page_text = page.get_text("text")
+                        pages.append({
+                            "page_num": page_idx + 1,
+                            "text": page_text
+                        })
+                        full_text_parts.append(page_text)
+                    doc.close()
+                    extracted = True
+                except Exception:
+                    pass
+
+            if not extracted:
                 try:
                     raw_text = file_bytes.decode('utf-8', errors='ignore')
                 except Exception:

@@ -42,6 +42,8 @@ class ChatMessageResponse(BaseModel):
     session_id: str
     reply: str
     citations: List[CitationItem]
+    provider: str = Field(default="mock", description="Active LLM provider (gemini, openai, ollama, mock)")
+    model: str = Field(default="mock", description="Active model identifier")
 
 
 class FeedbackRequest(BaseModel):
@@ -169,11 +171,14 @@ async def post_chat_message(
         document_ids=doc_ids
     )
 
+    info = llm_router.get_provider_info()
     return ChatMessageResponse(
         interaction_id=interaction_id,
         session_id=session_id,
         reply=reply,
-        citations=citations
+        citations=citations,
+        provider=info["provider"],
+        model=info["model"]
     )
 
 

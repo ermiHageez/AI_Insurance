@@ -3,7 +3,7 @@ from typing import Optional, Literal
 
 try:
     from pydantic_settings import BaseSettings
-    from pydantic import Field, ConfigDict
+    from pydantic import Field, ConfigDict, field_validator
 except ImportError:
     try:
         from pydantic import BaseModel as BaseSettings, Field, ConfigDict
@@ -24,10 +24,17 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = Field(default="INFO", description="Log level")
 
     # LLM Configuration
-    LLM_PROVIDER: Literal["ollama", "openai_compatible", "mock"] = Field(
+    LLM_PROVIDER: Literal["gemini", "openai", "groq", "openai_compatible", "ollama", "mock"] = Field(
         default="mock",
-        description="LLM Provider: ollama, openai_compatible (Gemini/OpenAI/Groq), or mock"
+        description="LLM Provider: gemini, openai, groq, openai_compatible, ollama, or mock"
     )
+
+    @field_validator("LLM_PROVIDER", mode="before")
+    @classmethod
+    def default_empty_provider(cls, v):
+        if not v or not isinstance(v, str) or v.strip() == "":
+            return "mock"
+        return v.strip().lower()
     LLM_API_KEY: Optional[str] = Field(
         default=None,
         description="Optional API Key for external cloud LLM"
